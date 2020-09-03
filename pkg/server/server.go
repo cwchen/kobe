@@ -19,6 +19,7 @@ type Kobe struct {
 	taskCache      *cache.Cache
 	inventoryCache *cache.Cache
 	chCache        *cache.Cache
+	pool           *Pool
 }
 
 func NewKobe() *Kobe {
@@ -26,10 +27,11 @@ func NewKobe() *Kobe {
 		taskCache:      cache.New(24*time.Hour, 5*time.Minute),
 		chCache:        cache.New(24*time.Hour, 5*time.Minute),
 		inventoryCache: cache.New(10*time.Minute, 5*time.Minute),
+		pool:           NewPool(),
 	}
 }
 
-func (k Kobe) CreateProject(ctx context.Context, req *api.CreateProjectRequest) (*api.CreateProjectResponse, error) {
+func (k *Kobe) CreateProject(ctx context.Context, req *api.CreateProjectRequest) (*api.CreateProjectResponse, error) {
 	pm := ProjectManager{}
 	p, err := pm.CreateProject(req.Name, req.Source)
 	if err != nil {
@@ -40,7 +42,7 @@ func (k Kobe) CreateProject(ctx context.Context, req *api.CreateProjectRequest) 
 	}
 	return resp, nil
 }
-func (k Kobe) ListProject(ctx context.Context, req *api.ListProjectRequest) (*api.ListProjectResponse, error) {
+func (k *Kobe) ListProject(ctx context.Context, req *api.ListProjectRequest) (*api.ListProjectResponse, error) {
 	pm := ProjectManager{}
 	ps, err := pm.SearchProjects()
 	if err != nil {
@@ -52,7 +54,7 @@ func (k Kobe) ListProject(ctx context.Context, req *api.ListProjectRequest) (*ap
 	return resp, nil
 }
 
-func (k Kobe) GetInventory(ctx context.Context, req *api.GetInventoryRequest) (*api.GetInventoryResponse, error) {
+func (k *Kobe) GetInventory(ctx context.Context, req *api.GetInventoryRequest) (*api.GetInventoryResponse, error) {
 	item, _ := k.inventoryCache.Get(req.Id)
 	if item == nil {
 		return nil, errors.New("inventory is expire")
@@ -63,7 +65,7 @@ func (k Kobe) GetInventory(ctx context.Context, req *api.GetInventoryRequest) (*
 	return resp, nil
 }
 
-func (k Kobe) WatchResult(req *api.WatchRequest, server api.KobeApi_WatchResultServer) error {
+func (k *Kobe) WatchResult(req *api.WatchRequest, server api.KobeApi_WatchResultServer) error {
 	ch, found := k.chCache.Get(req.TaskId)
 	if !found {
 		return errors.New(fmt.Sprintf("can not find task: %s", req.TaskId))
@@ -91,7 +93,7 @@ func (k Kobe) WatchResult(req *api.WatchRequest, server api.KobeApi_WatchResultS
 	return nil
 }
 
-func (k Kobe) RunAdhoc(ctx context.Context, req *api.RunAdhocRequest) (*api.RunAdhocResult, error) {
+func (k *Kobe) RunAdhoc(ctx context.Context, req *api.RunAdhocRequest) (*api.RunAdhocResult, error) {
 	rm := RunnerManager{
 		inventoryCache: k.inventoryCache,
 	}
@@ -113,18 +115,19 @@ func (k Kobe) RunAdhoc(ctx context.Context, req *api.RunAdhocRequest) (*api.RunA
 	if err != nil {
 		return nil, err
 	}
-	go func() {
+	task := func() {
 		runner.Run(ch, &result)
 		result.Finished = true
 		result.EndTime = time.Now().Format("2006-01-02 15:04:05")
 		k.taskCache.Set(result.Id, &result, cache.DefaultExpiration)
-	}()
+	}
+	k.pool.Commit(task)
 	return &api.RunAdhocResult{
 		Result: &result,
 	}, nil
 }
 
-func (k Kobe) RunPlaybook(ctx context.Context, req *api.RunPlaybookRequest) (*api.RunPlaybookResult, error) {
+func (k *Kobe) RunPlaybook(ctx context.Context, req *api.RunPlaybookRequest) (*api.RunPlaybookResult, error) {
 	rm := RunnerManager{
 		inventoryCache: k.inventoryCache,
 	}
@@ -147,18 +150,19 @@ func (k Kobe) RunPlaybook(ctx context.Context, req *api.RunPlaybookRequest) (*ap
 	if err != nil {
 		return nil, err
 	}
-	go func() {
+	b := func() {
 		runner.Run(ch, &result)
 		result.Finished = true
 		result.EndTime = time.Now().Format("2006-01-02 15:04:05")
 		k.taskCache.Set(result.Id, &result, cache.DefaultExpiration)
-	}()
+	}
+	k.pool.Commit(b)
 	return &api.RunPlaybookResult{
 		Result: &result,
 	}, nil
 }
 
-func (k Kobe) GetResult(ctx context.Context, req *api.GetResultRequest) (*api.GetResultResponse, error) {
+func (k *Kobe) GetResult(ctx context.Context, req *api.GetResultRequest) (*api.GetResultResponse, error) {
 	id := req.GetTaskId()
 	result, found := k.taskCache.Get(id)
 	if !found {
@@ -186,7 +190,7 @@ func (k Kobe) GetResult(ctx context.Context, req *api.GetResultRequest) (*api.Ge
 	return &api.GetResultResponse{Item: val}, nil
 }
 
-func (k Kobe) ListResult(ctx context.Context, req *api.ListResultRequest) (*api.ListResultResponse, error) {
+func (k *Kobe) ListResult(ctx context.Context, req *api.ListResultRequest) (*api.ListResultResponse, error) {
 	var results []*api.Result
 	resultMap := k.taskCache.Items()
 	for taskId := range resultMap {
