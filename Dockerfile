@@ -9,6 +9,7 @@ ENV GOARCH=$GOARCH
 ENV CGO_ENABLED=0
 
 
+
 RUN  apk update \
   && apk add git \
   && apk add make
@@ -18,6 +19,8 @@ COPY . .
 RUN make build_server_linux GOARCH=$GOARCH
 
 FROM alpinelinux/ansible:latest
+
+RUN echo > /etc/apk/repositories && echo -e "https://dl-cdn.alpinelinux.org/alpine/latest-stable/main\nhttps://dl-cdn.alpinelinux.org/alpine/latest-stable/community" >> /etc/apk/repositories && apk update && apk upgrade
 
 RUN apk add sshpass \
     && pip3 install netaddr \
