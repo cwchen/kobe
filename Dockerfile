@@ -18,11 +18,13 @@ RUN go mod download
 COPY . .
 RUN make build_server_linux GOARCH=$GOARCH
 
-FROM alpinelinux/ansible:latest
+FROM alpine:3.13.4
 
 RUN echo > /etc/apk/repositories && echo -e "https://dl-cdn.alpinelinux.org/alpine/latest-stable/main\nhttps://dl-cdn.alpinelinux.org/alpine/latest-stable/community" >> /etc/apk/repositories && apk update && apk upgrade
 
 RUN apk add sshpass \
+    && apk add ansible \
+    && apk add py3-pip \
     && apk add rsync \
     && apk add openssl \
     && pip3 install netaddr \
