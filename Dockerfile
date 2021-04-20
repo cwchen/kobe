@@ -8,8 +8,6 @@ ENV GOOS=linux
 ENV GOARCH=$GOARCH
 ENV CGO_ENABLED=0
 
-
-
 RUN  apk update \
   && apk add git \
   && apk add make
@@ -30,6 +28,7 @@ RUN apk add sshpass \
     && pip3 install netaddr \
     && pip3 install pywinrm
 
+RUN rm -rf /usr/lib/libzstd.so.1.4.5
 
 RUN mkdir /root/.ssh  \
     && touch /root/.ssh/config \
